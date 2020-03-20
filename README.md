@@ -43,6 +43,7 @@
 * os-less program
 * microphone drivers (later sign with uefi key)
 * network communication
+* usb mounting
 * (later) lang compiler using asm
 * (even later) asm compiler using raw machine code
 
