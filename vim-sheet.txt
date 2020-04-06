@@ -1,0 +1,49 @@
+[ESC] - switch to command mode
+i - insert mode (before cursor)
+a - append after cursor
+:w - write to file / save
+:q - quit if OK
+:q! - force quit
+G - jump to end of file
+gg - jump to beginning of file
+<x>G - jump to line x (or <x>gg)
+/<text> - search for text (?<text> searches going backward)
+n - continue with next search result
+N - previous search result
+0 - jump to beginning of line
+$ - jump to end of line
+w - jump to next word
+e - jump to end of following word
+b - jump to previous word
+<x>w/e/b - jump x times according to w, e or b
+o - create new line after current one jump there and go to insert mode (O - do the same without goint into insert mode)
+v - select text (v followed by a jump command selects amount of text accordingly. jump can be prepended by a number) (v<number>w/e/b/0/$/g/gg)
+d - delete selection / cut
+dd - delete current line
+P - paste before cursor (p after)
+y - copy
+dw/0/$/gg/gg - delete word, till beginning of line, till end of line, till beginning of file, till end of file
+u - undo
+[CTRL]+r - redo
+`. - jump to location of last edit
+:%s/searchtext/replacementtext/g - search and replace ( :%s/searchtext/replacementtext/gc - confirm first )
+[CTRL]+d - move down half a page
+[CTRL]+u - move up half a page
+f<char> - search for next character in this line (F<char> - previous char)
+I/A - insert at beginning of line / append at end of line
+r - replace current char with input char without entering insert mode
+c - delete selection and enter insert mode
+x - delete
+X - backspace
+. - repeat last command
+% - jump to matching brace, paranthases, multiline comment etc
+
+TODO: configure programming language compile error highlighting and maybe autocomplete suggestions (I don't think vim can also show you function definitions and function locations, but try to get that working anyway)
+TODO: pasting from system clipboard
+
+
+----------------
+configure ~/.vimrc :
+set number
+set term=ansi
+syntax on

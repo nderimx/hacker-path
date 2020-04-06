@@ -17,6 +17,7 @@
 * `x/s 0x8048484` -> examine string starting at 0x8048484 (stops when 0x0 is reached)
 * `x/2xw 0x8048484` -> examine 2 words(2 or 4 bytes) in hex
 * `x/8db 0x8048484` -> examine 8 bytes in decimal represantation
+* `p 0xbffff7bc - 0xbffff7a0` -> get distance between two addresses (result is in decimal)
 #### Backtracing the stack
 * `bt` -> prints all functions (and local variables) that lead to the current function
 
@@ -57,13 +58,16 @@ Each time a function is called a new stack frame is created.<br>
 ##### Stack Frame
 * *\<Low addresses>* ...
 * ----------end of stack frame----------
+* random padding (sometimes)
 * local variables
-* Saved Frame Pointer (SFP) - used to restore EBP
-* Frame Pointer (EBP) - apparently redundant (to the EBP register); used to restore ESP
+* -if-SFP-used- some DWORDS of padding are added (usually)
+* Saved Frame Pointer (SFP) - used to restore EBP *
 * Return address (ret) - used to restore EIP
 * ----------beginning of stack frame----------
 * Function parameters - for the above frame
 * *... \<High addresses>*
+<br>
+\*Sometimes when the funciton is simple enough, the compiler ommits SFP for performance. -fomit-frame-pointer tells the compiler to lower the threshold for ommitin SFP, which makes debugging more difficult. When there is no SFP, the compiler simply keeps exact track of the stack so that it knows when ret is reached (alloca, which moves ESP by a variable amount, may throw the compiler off). 
 ##### Stack Pointers
 * ESP -> top of stack (Stack Pointer)
 * EBP -> base of top stack frame (Base Pointer)
@@ -86,10 +90,12 @@ This is the Processor execution loop:
 * `void *err_malloc(unsigned int size) {...}` - in this case malloc goes through the error checking function, which *returns a void pointer*, which you don't see often
 * simple error handling: `fprintf(stderr, "Error: could not..."); exit(-1);`
 * proper error handling: `perror(error_message); exit(-1);` writes error_message to stderr and prints each error message in stderr in reverse order (colon seperated). So you can stack up errors and each time decide what to do (keep stacking, logging them, or exiting and printing them).
-* #include <mylibrary> -> compiler looks for this file in standard include paths (example: /usr/include/mylibrary) | #include "mylibrary" -> compiler looks in the current directory
+* #include \<mylibrary> -> compiler looks for this file in standard include paths (example: /usr/include/mylibrary) | #include "mylibrary" -> compiler looks in the current directory
 * memory of a struct is simply all its elements concatenated (without any padding probbably). the element's datatypes are stored in the struct itself (code segment).
 * `srand(time(0));` sets a seed which is used by rand(), although rand() doesn't take arguments.
 * `bzero(pointer, SIZE);` zeros out the given memory - useful when doing binary manipulations
+* `system(command);` creates a new process and executes the given command
+
 
 ## OS stuff
 * file descriptors are unique numbers across open files, stored in a table in memory (but there is another table that stores the exact memory locations of every file and is stored in persistant memory), and are passed to other functions (like pointers to the beginning of the file memory)
