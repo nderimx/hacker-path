@@ -67,8 +67,7 @@ Each time a function is called a new stack frame is created.<br>
 * Function parameters - for the above frame
 * *... \<High addresses>*
 <br>
- * Sometimes when the funciton is simple enough, the compiler ommits SFP for performance. -fomit-frame-pointer tells the compiler to lower the threshold for ommitin SFP, which makes debugging more difficult. When there is no SFP, the compiler simply keeps exact track of the stack so that it knows when ret is reached (alloca, which moves ESP by a variable amount, may throw the compiler off). 
-<br>
+ * Sometimes when the funciton is simple enough, the compiler ommits SFP for performance. -fomit-frame-pointer tells the compiler to lower the threshold for ommiting SFP, which makes debugging more difficult. When there is no SFP, the compiler simply keeps exact track of the stack so that it knows when ret is reached (alloca, which moves ESP by a variable amount, may throw the compiler off).
 ##### Stack Pointers
 * ESP -> top of stack (Stack Pointer)
 * EBP -> base of top stack frame (Base Pointer)
@@ -86,6 +85,8 @@ This is the Processor execution loop:
 3. Execute read instruction; ^goto step 1.
 
 ## Programming
+##### Remember, the processor doesn't know what types are. The machine code tells the processor how many bytes it will read/write on each step.
+* `unsigned int hacky_nonpointer = (unsigned int) char_array;` -> this demonstrates that a uint can hold a pointer, however the programmer needs to remember to typecast it correctly. For instance if you want the second element of this array, you would need to remember yourself the type of the elements in order to do this: `hacky_nonpointer += sizeof(char);`. To get the value of a char: `char mychar = *((char *) hacky_nonpointer);`, where `(char *)` casts the variable to a char **pointer**, and `*(...)` dereferences it in order to get the value.
 * `malloc()` allocates the given number rounded up so x%8==0 -> returns a void pointer (~uint) - null pointer is returned on error (0x0)
 * `free()` deallocates the memory range starting the given pointer
 * `void *err_malloc(unsigned int size) {...}` - in this case malloc goes through the error checking function, which *returns a void pointer*, which you don't see often
@@ -118,6 +119,28 @@ This is the Processor execution loop:
 * buffer overflows
 * format string vulnerabilities
 * memory leaks
+#### Shellcode
+Instructions injected into memory, which get executed, after manipulating EIP. Shellcode tells the program to restore privileges and open a shell prompt. If used in a suid program you get a root shell!
+### Buffer Overflows
+##### If the code doesn't check if an input fits iside an allocated buffer, or if the check has a flaw, a buffer overflow is possible
+#### Stack Overflow
+* Overriding a critical variable that gets pushed before the buffer
+* Overriding ret to change execution flow to the desired location (get access granted!)
+* Overriding ret to point to shellcode inside the stack
+* Overriding ret to point to shellcode located in the program environment)
+##### Overriding ret 
+Get approximate distance between input buffer and ret, and repeat your own return pointer into the burffer more than that distance, assuming the start of athe buffer is aligned with DWORDs on the stack, the ret address should get replaced with the return address that you provided.
+##### Shellcode inside the stack
+Since the stack looks different depending on the compiler and compiler flags, a NOP sled is needed.<br>
+A NOP Sled is the No Operation instruction repeated many times. In x86 the machine instruction is x90. So no matter where you point in the NOP sled, EIP will eventually reach the end of it.
+* NOP Sled
+* Shellcode
+* repeated address that points to middle of NOP Sled
+The tricky part is getting an approximate location of the NOP Sled - Two methods are:
+* 
+* 
+#### Heap Overflows
+* Overriding another buffer
 
 ## Open questions and challenges
 * why is the allocator reusing deallocated heapspace of 100 but not 50, when allocating 15(=>16)?
