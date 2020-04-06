@@ -67,7 +67,8 @@ Each time a function is called a new stack frame is created.<br>
 * Function parameters - for the above frame
 * *... \<High addresses>*
 <br>
-\*Sometimes when the funciton is simple enough, the compiler ommits SFP for performance. -fomit-frame-pointer tells the compiler to lower the threshold for ommitin SFP, which makes debugging more difficult. When there is no SFP, the compiler simply keeps exact track of the stack so that it knows when ret is reached (alloca, which moves ESP by a variable amount, may throw the compiler off). 
+ * Sometimes when the funciton is simple enough, the compiler ommits SFP for performance. -fomit-frame-pointer tells the compiler to lower the threshold for ommitin SFP, which makes debugging more difficult. When there is no SFP, the compiler simply keeps exact track of the stack so that it knows when ret is reached (alloca, which moves ESP by a variable amount, may throw the compiler off). 
+<br>
 ##### Stack Pointers
 * ESP -> top of stack (Stack Pointer)
 * EBP -> base of top stack frame (Base Pointer)
