@@ -68,6 +68,7 @@ Each time a function is called a new stack frame is created.<br>
 * *... \<High addresses>*
 <br>
  * Sometimes when the funciton is simple enough, the compiler ommits SFP for performance. -fomit-frame-pointer tells the compiler to lower the threshold for ommiting SFP, which makes debugging more difficult. When there is no SFP, the compiler simply keeps exact track of the stack so that it knows when ret is reached (alloca, which moves ESP by a variable amount, may throw the compiler off).
+
 ##### Stack Pointers
 * ESP -> top of stack (Stack Pointer)
 * EBP -> base of top stack frame (Base Pointer)
@@ -113,32 +114,63 @@ This is the Processor execution loop:
 ### When to look for Security holes
 * when a program is quickly modified to expand its functionality
 * when a service allows limited code execution/interpretation (sanbox environments, browsers,..)
+* ...
 ### Types of Vulnerabilities
 * off-by-one error (fencepost error) - for instance counting spaces instead of objects surrounding them
 * injections (very often using unicode escape codes)
 * buffer overflows
 * format string vulnerabilities
 * memory leaks
+* ...
 #### Shellcode
-Instructions injected into memory, which get executed, after manipulating EIP. Shellcode tells the program to restore privileges and open a shell prompt. If used in a suid program you get a root shell!
+Instructions injected into memory, which get executed by making EIP point to them. Shellcode tells the program to restore privileges and open a shell prompt. If used in a suid program you get a root shell!
 ### Buffer Overflows
-##### If the code doesn't check if an input fits iside an allocated buffer, or if the check has a flaw, a buffer overflow is possible
+##### If the code doesn't check if an input fits inside an allocated buffer, or if the check has a flaw, a buffer overflow is possible
 #### Stack Overflow
 * Overriding a critical variable that gets pushed before the buffer
 * Overriding ret to change execution flow to the desired location (get access granted!)
 * Overriding ret to point to shellcode inside the stack
-* Overriding ret to point to shellcode located in the program environment)
+* Overriding ret to point to shellcode located in the program environment
 ##### Overriding ret 
-Get approximate distance between input buffer and ret, and repeat your own return pointer into the burffer more than that distance, assuming the start of athe buffer is aligned with DWORDs on the stack, the ret address should get replaced with the return address that you provided.
+Get approximate distance between input buffer and ret, and repeat your own return pointer into the burffer more than that distance, assuming the start of the buffer is aligned with DWORDs on the stack, the ret address should get replaced with the return address that you provided.
 ##### Shellcode inside the stack
 Since the stack looks different depending on the compiler and compiler flags, a NOP sled is needed.<br>
 A NOP Sled is the No Operation instruction repeated many times. In x86 the machine instruction is x90. So no matter where you point in the NOP sled, EIP will eventually reach the end of it.
 * NOP Sled
 * Shellcode
-* repeated address that points to middle of NOP Sled
-The tricky part is getting an approximate location of the NOP Sled - Two methods are:
-* 
-* 
+* repeated address (enough times to overflow into ret) that points to middle of NOP Sled
+<br>
+The tricky part is getting an approximate location of the NOP Sled<br>
+One method is experimentally, by using a local varialbe as a reference and subrtacting an offset from it (experiment w/ offset) 
+###### Experimentally finding the NOP sled
+`$ seq 0 1 5` gives you a sequence of 0 to 5 with an increment of 1
+`$ for i in $(seq 0 30 300)` loop through with an increment of half the size of the NOP sled, so you don't miss it
+`> do`
+`> ./exploit $i` execute your exploit with a different offset each time, until it works`
+`> done`
+###### Finishing Exploit
+Finally we write a program which assembles the NOP sled, shellcode, and the repeated return address, and feeds them to the function `system()` together with the target program file path.
+##### Shellcode inside the Environment
+###### With a NOP sled
+When there is not enought space in the target stack frame, it's a good idea to put the shellcode in an environment variable. <br>
+`$ env` will show you all the current environment variables, which are accessible to any program run in the current shell<br>
+`$ export SHELLCODE=$(perl -e 'print "\x90"x200')$(cat shellcode.bin)` sets the env variable, assuming the shellcode is in shellcode.bin<br>
+Environment Variables are located near the bottom of the stack. To find our SHELLCODE environment variable run gdb with any program, break at main, examine memory addresses following esp+X (X = couple of hundreds). Look through them till you see `"SHELLCODE=", '\220' \<repeats ...`. Don't know why its '\220' instead of '\144'<br>
+Find the address of the middle of the NOP sled (to have wiggle room) while looking through the gdb output.<br>
+`$ ./target_program $(perl -e 'print "\x47\xf9\xff\xbf"x40')` where 0xbffff947 is the middle of the NOP sled. This will run the program we want to hack with the repeated pointer as the argument.
+###### Without a NOP sled
+C's standard library has a function called getenv(env_var), which returns the memory address of an environment variable.<br>
+The only problem is that the exact memory location depends on the length of the program's name. So running the program with the "exact address" still crashes it, since the target program might have a different name length than the program which got the memory address using getenv(). You could include in this env_var extracting program the functionality to compensate for this, but there's a cleaner way to use environment variables.
+##### Providing a custom Environment
+When we look at libc in the `system()` function, which we used to run our target program in the first exploit, we see that it first uses `fork()` to create a new process, and then `execl("/bin/sh", "sh", "-c", cmd, NULL);`, which replaces the current process with the new specified one (I'm not sure how execl() is replacing the new forked process, if at all, especially since it's supposed to replace the "current function"). Since version two of /bin/sh, the setuid privileges get dropped when using system().<br>
+We could use directly `execl()`, which uses the current environment, but there is a function: `execle()` which does the exact same thing, with the exception that it uses a provided environment.<br>
+An environment with 3 variables looks like this: `char *env[4] = {PATH, HOME, USER, 0};`.<br>
+The very bottom of the environment (which is in the stack) is always **0xbffffffa**. The first string there is the program name, in our case "./target_program", which should start at `0xbffffffa`-`strlen("./target_program")`, because the stack grows upward toward lower memory addresses. The second string is the first environment variable.<br>
+The same way we got the program name address we, can get the exact memory location of the shellcode, subtracting from `0xbffffffa` the size of the program name, 1 for the null byte which server as a delimiter, and the size of the shellcode: `ret = 0xbffffffa - sizeof(shellcode) - 1 - strlen("./target_program");`<br>
+To write the exploit program:
+1. create an environment with the only variable being the shellcode: `char *env[2] = {shellcode, 0};`
+2. calculate the exact shellcode address and make a large enough *buffer* out of it to overflow ret.
+3. then feed these to execle() -> `execle("./target_program", "target_program", buffer, 0, env);`
 #### Heap Overflows
 * Overriding another buffer
 
