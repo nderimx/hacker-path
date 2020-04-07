@@ -33,6 +33,11 @@ since Linux kernel 2.6.11
 * `$ which <program_name>` finds the binary location
 * `$ id $(whoami)` returns the current user's id and its group ids
 * `$ hexdump -C <file>` shows bytes alongside their string representations when applicable
+* `$ nm <binary>` finds addresses of functions in a program - useful for knowing where to point EIP to get to a desired function location
+#### tricks
+* CTRL+Z pauses a program (puts it in the background), and `$ fg <program_name>` resumes it (puts it back to the foreground)
+* piping a string, with multiple "\n" inbetween, to a program which doesn't take arguments, but reads from standard input during execution, allows you to define the interaction with the program berorehand. To illustrate: -y option in many programs, or the yes command does exactly the same, writing constantly: "y\ny\ny\ny\n". Useful with setting up containers and automating buffer overlows that require navigation through stdin.
+* `$ cat <file> - | <program>` cat with a dash ( - ) at the end returns standard input to you after doing its job. Useful for writing to a hacked shell.
 
 ## Memory Segmentation
 ### Segments
@@ -74,8 +79,8 @@ Each time a function is called a new stack frame is created.<br>
 * EBP -> base of top stack frame (Base Pointer)
 ##### Call instruction
 0. before a call instruction, its parameters get moved to the stack (which make up the end of that frame)
-<br>
-<br>
+
+
 1. pushes the return address to the stack (EIP+sizeof(instruction))
 2. jumps to the beginning of the called function
 #### CPU execution
@@ -126,13 +131,15 @@ This is the Processor execution loop:
 Instructions injected into memory, which get executed by making EIP point to them. Shellcode tells the program to restore privileges and open a shell prompt. If used in a suid program you get a root shell!
 ### Buffer Overflows
 ##### If the code doesn't check if an input fits inside an allocated buffer, or if the check has a flaw, a buffer overflow is possible
+1. Find distance between unchecked buffer and target variable you want to override
+2. Overflow the buffer with that distance plus the payload for the target variable
 #### Stack Overflow
 * Overriding a critical variable that gets pushed before the buffer
 * Overriding ret to change execution flow to the desired location (get access granted!)
 * Overriding ret to point to shellcode inside the stack
 * Overriding ret to point to shellcode located in the program environment
 ##### Overriding ret 
-Get approximate distance between input buffer and ret, and repeat your own return pointer into the burffer more than that distance, assuming the start of the buffer is aligned with DWORDs on the stack, the ret address should get replaced with the return address that you provided.
+Get approximate distance between input buffer and ret, and repeat your own return pointer into the buffer more than that distance, assuming the start of the buffer is aligned with DWORDs on the stack, the ret address should get replaced with the return address that you provided.
 ##### Shellcode inside the stack
 Since the stack looks different depending on the compiler and compiler flags, a NOP sled is needed.<br>
 A NOP Sled is the No Operation instruction repeated many times. In x86 the machine instruction is x90. So no matter where you point in the NOP sled, EIP will eventually reach the end of it.
@@ -146,7 +153,7 @@ One method is experimentally, by using a local varialbe as a reference and subrt
 `$ seq 0 1 5` gives you a sequence of 0 to 5 with an increment of 1
 `$ for i in $(seq 0 30 300)` loop through with an increment of half the size of the NOP sled, so you don't miss it
 `> do`
-`> ./exploit $i` execute your exploit with a different offset each time, until it works`
+`> ./exploit $i` execute your exploit with a different offset each time, until it works
 `> done`
 ###### Finishing Exploit
 Finally we write a program which assembles the NOP sled, shellcode, and the repeated return address, and feeds them to the function `system()` together with the target program file path.
@@ -172,8 +179,29 @@ To write the exploit program:
 2. calculate the exact shellcode address and make a large enough *buffer* out of it to overflow ret.
 3. then feed these to execle() -> `execle("./target_program", "target_program", buffer, 0, env);`
 #### Heap Overflows
-* Overriding another buffer
-
+* Here the target variable needs to be declared after the input buffer (opposite of stack overflows)
+* You can also use heap header information to do stuff... (Need more reading) 
+##### Protections
+After overflowing a heap buffer, when using free() to unallocate memory, errors in the heap header information are detected, debugging information printed and the program is terminated. Simmilar to segmentation fault in stacks. glibc does this since version 2.2.5 to make heap unlinking in Linux very difficult. (Need more reading on heap unlinking)
+#### Function Pointer Overlows (segment doesn't matter)
+When a function pointer, which has been set, is called, like any other function, the EIP gets redirected to wherever the funciton address is, or the function pointer points to. So overlowing into a function pointer lets you control EIP!<br>
+However, you still need to navigate through the running program (create a scenario) until you get to a point where the function pointer is called after being overwritten.
+### Interesting hacking examples from the book
+#### Using a setuid notetaker program to add users with root privileges (heap overflow)
+Lets say we have a program that lets you take notes, which only you can read, although with another program, called notesearch.<br>
+The way it works is, it gets the real ID of the user, writes it in a file only root can read/write, then writes under that the user provided note. The program notesearch also gets the real user ID, and prints only the lines located below the matching user ID.<br>
+There is a buffer in notetaker, which stores the user provided note, and directly after it is the string variable that stores the file path of the notes (this doesn't change throughout the program). Both are pointers which with memory allocated in the heap. Since there is no size check, the buffer can be overlown in the note file path variable. Now you can write stuff with root privileges to a file, like `/etc/passwd`.<br>
+/etc/passwd looks something like this:<br>
+`root:x:0:0:root:/root:/bin/bash`<br>
+`daemon:x:1:1:daemon:/usr/sbin:/bin/sh`<br>
+`bin:x:2:2:bin:/bin:/bin/sh`<br>
+`sys:x:3:3:sys:/dev:/bin/sh`<br>
+`...`<br>
+(login_name, password, user_ID, group_ID, username, home_dir, login_shell)<br>
+The hashed(and salted) passwords are stored in a shadow file, however the passwd file **can** contain a hashed password instead of an x.<br>
+**Any entry in the passwd file with a user ID of 0 will have root privileges.**<br>
+`perl -e 'print crypt("password", "AA")` will print the salted hash of "password" with "AA". in python it looks exactly the same, but you need to import crypt and have to use paranthases for print, which doesn't look clear in the command line.<br>
+Since the overlowing buffer must end with "etc/passwd" if we want to write to it, the book suggests making the directory "/tmp/etc" then link: `ln -s /bin/bash /tmp/etc/passwd`. This allows the entry for a user to make sense, since the last part of the entry is the login shell, /tmp**/etc/passwd** points to the bash shell /bin/bash. So they are equivalent. I tried a simpler potential solution, which is to put a null byte right before "/etc/passwd", so that you have effectively two separate strings. That doesn't work, because bash strings are implemented using the C definition of a string (NUL terminated), so when you try to sneak in a null byte, it would be identical to passing the program two arguments, however that doesn't happen, instead bash simply ignores the null byte alltogether in this scenario. In order to overflow the filepath variable AND for the entry to still make sense, the username (which is different from the login name) can be filled with as many characters as needed.
 ## Open questions and challenges
 * why is the allocator reusing deallocated heapspace of 100 but not 50, when allocating 15(=>16)?
 * In C, for the sake of performance, the programmer is responsible for data integrity, instead of the compiler, since it would do integrity checks on every variable (or maybe only on buffers, idk). Why is Rust almost on par with C when it comes to performance (according to the Rust team, I haven't tested it myself yet)?
