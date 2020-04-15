@@ -29,15 +29,25 @@ since Linux kernel 2.6.11
 #### CLI calculators
 * `$ bc -ql 192*(256^3)+168*(256^2)+256+1`
 * `$ pcalc 0y10111011` -> output: `187 0xBB 0y10111011`
+* `$ gdb -q --batch -ex "p /d 0x1ab"` -> converts to decimal
 #### information revealers
 * `$ which <program_name>` finds the binary location
 * `$ id $(whoami)` returns the current user's id and its group ids
 * `$ hexdump -C <file>` shows bytes alongside their string representations when applicable
 * `$ nm <binary>` finds addresses of functions in a program - useful for knowing where to point EIP to get to a desired function location
+* `$ diff filename1.c filename2.c`
+* `$ objdump -s -j .dtors <binary>` - get specific section
+* `$ objdump -h <binary> - list all binary tables and their permissions
+* `$ objdump -d -j .plt <binary>` - prints out disassembled section specified
 #### tricks
 * CTRL+Z pauses a program (puts it in the background), and `$ fg <program_name>` resumes it (puts it back to the foreground)
 * piping a string, with multiple "\n" inbetween, to a program which doesn't take arguments, but reads from standard input during execution, allows you to define the interaction with the program berorehand. To illustrate: -y option in many programs, or the yes command does exactly the same, writing constantly: "y\ny\ny\ny\n". Useful with setting up containers and automating buffer overlows that require navigation through stdin.
 * `$ cat <file> - | <program>` cat with a dash ( - ) at the end returns standard input to you after doing its job. Useful for writing to a hacked shell.
+#### Quick Editing tools and info extractors
+* `$ sed -e 's/{old-text}/{new-text}/ filename > filename{2}`
+* `$ awk`
+* `$ grep`
+* `$ head`
 
 ## Memory Segmentation
 ### Segments
@@ -186,6 +196,33 @@ After overflowing a heap buffer, when using free() to unallocate memory, errors 
 #### Function Pointer Overlows (segment doesn't matter)
 When a function pointer, which has been set, is called, like any other function, the EIP gets redirected to wherever the funciton address is, or the function pointer points to. So overlowing into a function pointer lets you control EIP!<br>
 However, you still need to navigate through the running program (create a scenario) until you get to a point where the function pointer is called after being overwritten.
+### Format String Vulnerabilities
+They may be outdated...<br>
+`printf(fmt_string, argument1, argument2...)` - this looks at each character from fmt_string, and if it's a special character (%), it will look for a format character (d, x, c, s, p, n (together with '%' in front it's called a format identifier), then it will print whatever is at the next argument (argument1..) formatted according to the format character, otherwise it prints the character from the fmt_string if it wasn't a %.<br>
+The vulnerability: if there are more special format codes (%s, %x...) than arguments, the printf function will look at the memory location after the last printf parameter/argument, which are located at the end of the previous stack frame.<br>
+Frequent programmer mistake: `printf(only_string_to_print);`. Here if the user can control the only_string_to_print, and insert special % characters, they can make it so that printf goes through memory addresses that weren't intended to be looked at. If the user inserts 40 `%x` into the only_string_to_print, then they can read 40 words into the stack after the pointer to only_string_to_print (it's a pointer because it's a stack frame parameter).<br>
+Convenient case: if only_string_to_print is created in the stack, and for convenience is the first declared in the function (top of stack), then eventually you will read bytes from that very string. Example: only_string_to_print="AAAA%x%x%x%x%x%x". When using this input, printf will reveal six words total, some of which may be stack frame padding, but getting past the padding you start getting local variables, in our case bytes from the input string: 0x41414141 followed by ascii bytes for '%' and 'x'.
+#### Reading from Arbitrary Memory
+Using `%s` to print a string, actually prints a string where the argument pointer points to, so instead of writing 'AAAA' at the beginning of the input string, you could insert a memory address and use '%s' so that it aligns with it, and printf will print the string located at the memory address you provided.
+#### Writing to Arbitrary Memory
+'%n' is a special symbol which instead of reading from memory, it writes to the argument variable. Example: `printf("The number of bytes printed up until this point X%n, are stored in the variable count", count);`. Here count would be 48.<br>
+In our previous convenient case if we replaced the '%s' corresponding to the memory address we wanted to read from, with "%n", then printf would write to our provided memory address the number of bytes printed up until "%n". This is how you write to memory, however, it's not very useful spamming the format string with characters to get to a high number, and even impossible to write the value of an address. By using field width modifiers, such as '%100x', the count of the format string gets increased by 100. Using this helps, but it's still not enough to write memory values.
+##### Writing "descending memory"
+You could also write one byte at a time inside a word. Let's say we want to write to memory address '0x08049794'. We first write the least significant byte to '0x08049794', then the next to '0x08049795', then '0x08049796', and finally to the most significant byte '0x08049797' (remember it's little endian ordering in x86), where in between the memory addresses in the format string, we insert any four bytes (value doesn't matter), and between the '%n' format identifiers, there are '%100x', where instead of 100 you write the difference between each byte we want to write in memory. An example: `"\x94\x97\x04\x08JUNK\x95\x97\x04\x08JUNK\x96\x97\x04\x08JUNK\x97\x97\x04\x08%x%x%126x%n%17x%n%17x%n%17x%n"` -> would write to 0x08049794: 0xddccbbaa<br>
+Note: this also writes 3 bytes to the next word.
+##### Writing anything
+If we wanted to write 0xaabbccdd we would run into a problem after writing dd, the difference between cc and dd is negative, and you can't reduce the count of characters in the format string. However, you could find the difference between 1cc and dd, and put that in the '%{difference}x' format identifier, to write `cc 01 00 00` (in little endian) instead of trying to write `cc 00 00 00`. This way it doesn't matter if the next byte is lower of higher... Except if the next byte is only 3 or lower bytes greater, then that low number you put in the format identifier gets ignored, since there are 4 bytes in "JUNK", and the difference will be exactly four. To circumvent this problem just do the same thing as with lower values.
+##### Writing to memory easier
+1. `printf("7th: %7$d, 4th: %4$05d \n", 10, 20, 30, 40, 50, 60, 70, 80);` will print `"7th: 70, 4th: 00040"`. So after finding out in which position your format string is, you can simply use **Direct Memory Access**, to directly get to that address. Example of fmt vulnerability string: "AAAA%4$x" would output "AAAA41414141".
+2. It's hard to write entire 4 byte memory addresses with field modifiers, but it's easy writing shorts/half-words/two-bytes. printf also uses %hn to write a short instead of a word (such as with %n). This halves the amount of the format string, from making you write 4 bytes individually, you can write 2 shorts individually to make a whole word. On negative differences between the shorts or differences less than 4, you can use the same tricks as with writing individual bytes.
+#### Writing to .dtors
+Programs compiled with gcc have two tables called .dtors (for destructors) and .ctors (for constructors).<br>
+* Constructor functions are executed before main()
+* Destructor functions are executed before the main functions exits with the exit syscall
+`static void cleanup(void) __attribute__ ((destructor));` - this is how you declare a destructor function header. Afterwards you simply define this declared function like any other.<br>
+With nm <binary> you can see that there is a __DTORS_END__ (containing 0x00000000) and __DTORS_LIST__ (containing 0xffffffff). All the Destructor functions should be in-between these two. Turns out .dtors is not read only, so writing a custom or handpicked function pointer to __DTORS_LIST__+4, which would be __DTORS_END__ if there aren't any destructors, would make the program execute your function right before exit is called. So you could get a shell with effective user privileges.
+#### Writing to the Global Offset Table
+*procedure linkage table (PLT)* is another special section in compiled programs, which contains all external library function pointers (ABI I believe). If you disassemble the plt section, you find library functions (like system calls), which are each defined with a push and jump instruction. You can't simply overwrite a pointer to change execution flow because plt readonly. However, the addresses that plt functions point to, are located in the Global Offset Table, which is writable. GOT does pretty much the same, but is more like a table, and it contains the actual addresses of the external functions. So to change execution flow simply change the address of the desired GOT entry and voila. To get these Records use `objdump -R <binary>` for the DYNAMIC RELOCATION RECORDS (GOT).
 ### Interesting hacking examples from the book
 #### Using a setuid notetaker program to add users with root privileges (heap overflow)
 Lets say we have a program that lets you take notes, which only you can read, although with another program, called notesearch.<br>
